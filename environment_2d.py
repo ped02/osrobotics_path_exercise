@@ -57,6 +57,8 @@ class TriangularObstacle:
             self.A[2, :] = b, -a
         self.C[2] = np.dot(self.A[2, :], np.array([x2,y2]))
 
+        self.vertices = np.array([[x0, y0], [x1, y1], [x2, y2]])
+
 
     def contains(self, x: Number, y: Number) -> bool:
         r = np.dot(self.A, np.array([x,y])) - self.C
@@ -71,22 +73,36 @@ class TriangularObstacle:
         plt.plot([self.x1,self.x2], [self.y1,self.y2], "r" , linewidth = 2)
         plt.plot([self.x2,self.x0], [self.y2,self.y0], "r" , linewidth = 2)
 
-        #plt.plot([self.x0,self.x0 + self.A[0,0]], [self.y0,self.y0 + self.A[0,1]], "b" , linewidth = 1)
-        #plt.plot([self.x1,self.x1 + self.A[1,0]], [self.y1,self.y1 + self.A[1,1]], "b" , linewidth = 1)
-        #plt.plot([self.x2,self.x2 + self.A[2,0]], [self.y2,self.y2 + self.A[2,1]], "b" , linewidth = 1)
+        # Visualize Edge Direction
+        # plt.quiver([self.x0, self.x1, self.x2], 
+        # [self.y0, self.y1, self.y2], 
+        # [self.x1 - self.x0, self.x2 - self.x1, self.x0 - self.x2],
+        # [self.y1 - self.y0, self.y2 - self.y1, self.y0 - self.y2],
+        # scale = 1, angles='xy', scale_units='xy')
 
-        #plt.quiver(self.x0, self.y0, np.array([self.x0 + self.A[0,0]]), np.array([self.y0 + self.A[0,1]]))
-        plt.quiver([self.x0, self.x1, self.x2], 
-        [self.y0, self.y1, self.y2], 
-        [self.x1 - self.x0, self.x2 - self.x1, self.x0 - self.x2],
-        [self.y1 - self.y0, self.y2 - self.y1, self.y0 - self.y2],
-        scale = 1, angles='xy', scale_units='xy')
+        # plt.quiver([self.x0, self.x1, self.x2], 
+        # [self.y0, self.y1, self.y2], 
+        # [self.x0 + self.A[0,0], self.x1 + self.A[1,0], self.x2 + self.A[2,0]],
+        # [self.y0 + self.A[0,1], self.y1 + self.A[1,1], self.y2 + self.A[2,1]],
+        # scale = 1, angles='xy', scale_units='xy')
 
-        plt.quiver([self.x0, self.x1, self.x2], 
-        [self.y0, self.y1, self.y2], 
-        [self.x0 + self.A[0,0], self.x1 + self.A[1,0], self.x2 + self.A[2,0]],
-        [self.y0 + self.A[0,1], self.y1 + self.A[1,1], self.y2 + self.A[2,1]],
-        scale = 1, angles='xy', scale_units='xy')
+    def segment_outside(self, x: np.array, y: np.array):
+        rx = np.dot(self.A, x) - self.C
+        ry = np.dot(self.A, y) - self.C
+
+        left_x = rx < 0
+        left_y = ry < 0
+
+        # If both x and y are on the lefthand of an edge -> outside of triangle
+        cond_1 = np.any(np.logical_and(left_x, left_y))
+
+        # If all 3 vertices of triangle is on the same half plane of xy -> outside of triangle
+        v = y - x
+        u = self.vertices - x
+        r = np.cross(v, u)
+        cond_2 = np.all(r < 0) or np.all(r > 0)
+        
+        return cond_1 or cond_2
 
 class EnvironmentFast:
     """ Fast Collision Environment
@@ -100,6 +116,7 @@ class EnvironmentFast:
 
         As = []
         Cs = []
+        verts = []
 
         for i in range(n_obs):
             x0 = np.random.rand()*size_x
@@ -112,13 +129,25 @@ class EnvironmentFast:
             self.obs.append(tri)
             As.append(tri.A)
             Cs.append(tri.C)
+            verts.append(tri.vertices)
 
         self.As = np.array(As)
         self.Cs = np.array(Cs)
+        self.verts = np.array(verts)
 
     def check_collision(self, x: Number, y: Number) -> bool:
         r = np.matmul(self.As, np.array([x,y])) - self.Cs
         return np.any(np.all(r > 0, 1))
+
+    def check_segment_outside(self, x0: Number, y0: Number, x1: Number, y1: Number) -> bool:
+        x = np.array([x0, y0])
+        y = np.array([x1, y1])
+
+        for ob in self.obs:
+            if ob.segment_outside(x, y):
+                return True
+
+        return False
 
     def check_collision_np(self, x: np.array) -> bool:
         """ Check collision using numpy array as parameter
@@ -127,10 +156,32 @@ class EnvironmentFast:
         ----------
         x : np.array
             x.shape == (2,)
+
+        Returns
+        ----------
+        bool: if point is inside obstacles
         """
         assert x.shape == (2,)
         r = np.matmul(self.As, x) - self.Cs
         return np.any(np.all(r > 0, 1)) 
+
+    def check_segment_outside_np(self, x: np.array, y: np.array) -> bool:
+        rx = np.matmul(self.As, x) - self.Cs
+        ry = np.matmul(self.As, y) - self.Cs
+
+        left_x = rx < 0
+        left_y = ry < 0
+
+        # If both x and y are on the lefthand of an edge -> outside of triangle : Requires for all triangle
+        cond_1 = np.any(np.logical_and(left_x, left_y), 1)
+
+        # If all 3 vertices of triangle is on the same half plane of xy -> outside of triangle
+        v = y - x
+        u = self.verts - x
+        r = np.cross(v, u)
+        cond_2 = np.logical_or(np.all(r < 0, 1), np.all(r > 0, 1))
+        
+        return np.all(np.logical_or(cond_1, cond_2))
 
     def random_query(self) -> Union[tuple, None]:
         max_attempts = 100
@@ -171,6 +222,11 @@ class EnvironmentFast:
     def plot_query(self, x_start, y_start, x_goal, y_goal) -> None:
         plt.plot([x_start], [y_start], "bs", markersize = 8)
         plt.plot([x_goal], [y_goal], "y*", markersize = 12)
+        plt.show()
+
+    def plot_point(self, x, c='g') -> None:
+        plt.plot([x[0]], [x[1]], c)
+        plt.show()
 
 class Environment:
     def __init__(self, size_x: Number, size_y: Number, n_obs: int):
@@ -190,6 +246,16 @@ class Environment:
         for ob in self.obs:
             if ob.contains(x, y):
                 return True
+        return False
+
+    def check_segment_outside(self, x0: Number, y0: Number, x1: Number, y1: Number) -> bool:
+        x = np.array([x0, y0])
+        y = np.array([x1, y1])
+
+        for ob in self.obs:
+            if ob.segment_outside(x, y):
+                return True
+
         return False
 
     def random_query(self) -> Union[tuple, None]:
