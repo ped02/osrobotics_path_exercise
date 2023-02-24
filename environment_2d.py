@@ -2,10 +2,6 @@
 Modified from exercise template from osrobotics.org
 https://github.com/crigroup/osr_course_pkgs/blob/master/osr_examples/scripts/environment_2d.py
 
-Modifications:
-Added type hinting
-Added collision check overload for TriangularObstacle
-
 '''
 from typing import Union
 from numbers import Number
